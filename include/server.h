@@ -8,10 +8,10 @@
 
 using boost::asio::ip::tcp;
 
-class session : public std::enable_shared_from_this<session>
+class Session : public std::enable_shared_from_this<Session>
 {
 public:
-  session(tcp::socket socket) : socket_(std::move(socket)) {}
+  Session(tcp::socket socket) : socket_(std::move(socket)) {}
 
   void start()
   {
@@ -87,10 +87,10 @@ private:
   }
 };
 
-class server
+class Server
 {
 public:
-  server(short port) : acceptor_(io_service_, tcp::endpoint(tcp::v4(), port))
+  Server(short port) : acceptor_(io_service_, tcp::endpoint(tcp::v4(), port))
   {
     do_accept();
   }
@@ -108,7 +108,7 @@ private:
         {
           if (!ec)
           {
-            std::make_shared<session>(std::move(socket))->start();
+            std::make_shared<Session>(std::move(socket))->start();
           }
           do_accept();
         });
