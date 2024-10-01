@@ -1,7 +1,10 @@
 #include <boost/asio.hpp>
-#include <boost/asio.hpp>
-
+#include <boost/bind/bind.hpp>
+#include <iostream>
+#include <memory>
 #include <string>
+#include <unordered_map>
+#include <fstream>
 
 using boost::asio::ip::tcp;
 
@@ -16,38 +19,78 @@ public:
   }
 
 private:
+  tcp::socket socket_;
+  std::string request_;
+
   void do_read()
   {
-    auto self = shared_from_this();
-    socket_.async_read_some(
-        boost::asio::buffer(data_, max_length),
-        [this, self](boost::system::error_code ec, std::size_t length)
-        {
-          if (!ec)
-          {
-            std::string response = "HTTP/1.1 200 OK\r\n"
-                                   "Content-Type: text/plain\r\n\r\n"
-                                   "Hello from Boost Asio!";
-            boost::asio::async_write(socket_, boost::asio::buffer(response),
-                                     [this, self](boost::system::error_code ec, std::size_t /*length*/) {
-
-                                     });
-          }
-        });
+    auto self(shared_from_this());
+    request_.resize(1024);
+    socket_.async_read_some(boost::asio::buffer(request_),
+                            [this, self](boost::system::error_code ec, std::size_t length)
+                            {
+                              if (!ec)
+                              {
+                                handle_request(request_);
+                              }
+                            });
   }
 
-  tcp::socket socket_;
-  enum
+  void handle_request(const std::string &request)
   {
-    max_length = 1024
-  };
-  char data_[max_length];
+    std::string response;
+    std::string method;
+    std::string uri;
+
+    std::istringstream request_stream(request);
+    request_stream >> method >> uri;
+
+    if (method == "POST" && uri == "/upload")
+    {
+      handle_upload(request_stream);
+      response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+    }
+    else if (method == "GET" && uri.length() > 1 && uri.find('/') == 0)
+    {
+      std::string id = uri.substr(1);
+      response = handle_get(id);
+    }
+    else
+    {
+      response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+    }
+
+    do_write(response);
+  }
+
+  void handle_upload(std::istringstream &request_stream)
+  {
+    std::cout << "Uploaded" << std::endl;
+  }
+
+  std::string handle_get(const std::string &id)
+  {
+    return "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+  }
+
+  void do_write(const std::string &response)
+  {
+    auto self(shared_from_this());
+    boost::asio::async_write(socket_, boost::asio::buffer(response),
+                             [this, self](boost::system::error_code ec, std::size_t /*length*/)
+                             {
+                               if (!ec)
+                               {
+                                 socket_.close();
+                               }
+                             });
+  }
 };
 
 class server
 {
 public:
-  server(short port) : io_service_(), acceptor_(io_service_, tcp::endpoint(tcp::v4(), port))
+  server(short port) : acceptor_(io_service_, tcp::endpoint(tcp::v4(), port))
   {
     do_accept();
   }
