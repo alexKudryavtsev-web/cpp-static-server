@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <fstream>
+#include <filesystem>
 
 using boost::asio::ip::tcp;
 
@@ -25,7 +26,7 @@ private:
   void do_read()
   {
     auto self(shared_from_this());
-    request_.resize(1024);
+    request_.resize(100000);
     socket_.async_read_some(boost::asio::buffer(request_),
                             [this, self](boost::system::error_code ec, std::size_t length)
                             {
@@ -47,8 +48,7 @@ private:
 
     if (method == "POST" && uri == "/upload")
     {
-      handle_upload(request_stream);
-      response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+      response = handle_upload(request_stream);
     }
     else if (method == "GET" && uri.length() > 1 && uri.find('/') == 0)
     {
@@ -63,9 +63,60 @@ private:
     do_write(response);
   }
 
-  void handle_upload(std::istringstream &request_stream)
+  std::string handle_upload(std::istringstream &request_stream)
   {
-    std::cout << "Uploaded" << std::endl;
+    std::string line;
+    std::string boundary;
+
+    while (std::getline(request_stream, line) && line != "\r")
+    {
+      if (line.find("Content-Type: multipart/form-data;") != std::string::npos)
+      {
+        size_t pos = line.find("boundary=");
+        if (pos != std::string::npos)
+        {
+          boundary = "--" + line.substr(pos + 9); // 9 - len "boundary="
+        }
+      }
+    }
+
+    std::ostringstream body_stream;
+    while (std::getline(request_stream, line))
+    {
+      body_stream << line << "\n";
+    }
+
+    std::string body = body_stream.str();
+
+    return save_file(body, boundary);
+  }
+
+  std::string save_file(const std::string &body, const std::string &boundary)
+  {
+    size_t start = body.find(boundary);
+    size_t end = body.length();
+
+    if (start != std::string::npos && end != std::string::npos)
+    {
+      start += boundary.length();
+      size_t filename_start = body.find("filename=\"", start) + 10; // 10 - длина "filename=\""
+      size_t filename_end = body.find("\"", filename_start);
+      std::string filename = body.substr(filename_start, filename_end - filename_start);
+
+      // Определяем путь к файлу
+      std::filesystem::path storage_path = "./storage/" + filename;
+
+      // Сохраняем файл
+      std::ofstream ofs(storage_path, std::ios::binary);
+      ofs.write(body.data(), body.length());
+      ofs.close();
+
+      return "HTTP/1.1 200 OK\r\n\r\nFile uploaded successfully.";
+    }
+    else
+    {
+      return "HTTP/1.1 400 Bad Request\r\n\r\nCould not parse the file.";
+    }
   }
 
   std::string handle_get(const std::string &id)

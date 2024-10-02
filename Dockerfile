@@ -13,6 +13,9 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     cmake
 
+# Mage storage
+RUN mkdir ./storage
+
 # Copy the source code into the container
 COPY main.cpp .
 COPY src/ .
